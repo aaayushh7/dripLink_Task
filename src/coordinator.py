@@ -15,6 +15,7 @@ async def run_all(audio_path: str) -> Dict[str, Any]:
     """
     Runs all language detection providers and returns aggregated results.
     Also runs fastText on any available transcripts for additional language detection.
+    Gives higher weight to audio-based detectors over text-based ones.
     """
     # Run real and mock connectors in parallel
     tasks = [asyncio.create_task(c(audio_path)) for c in CONNECTORS]
@@ -46,7 +47,7 @@ async def run_all(audio_path: str) -> Dict[str, Any]:
         fasttext_result = await detect_language_fasttext(whisper_transcript)
         results.append(fasttext_result)
 
-    # Ensemble: weighted vote by confidence; if confidence missing => 1.0
+    # Ensemble: weighted vote by confidence and provider type
     votes = {}
     for r in results:
         if r["status"] != "success":
@@ -54,7 +55,14 @@ async def run_all(audio_path: str) -> Dict[str, Any]:
         lang = r.get("language")
         if not lang:
             continue
+            
+        # Base weight is confidence or 1.0
         w = r.get("confidence") or 1.0
+        
+        # Give higher weight to audio-based detectors
+        if r["provider"] in ["whisper_local", "sarvam_mock"]:
+            w *= 2.0  # Double weight for audio-based detectors
+            
         votes[lang] = votes.get(lang, 0.0) + w
     
     # Calculate total costs
